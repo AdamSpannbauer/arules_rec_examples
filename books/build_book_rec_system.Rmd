@@ -14,6 +14,167 @@ Download link: https://www.kaggle.com/datasets/jirakst/bookcrossing/download?dat
 * Keep unzipped data files in a folder named `data` that's in the same folder as this Rmd file
 
 ```{r message=FALSE}
-
+library(dplyr)
+library(arules)
 ```
 
+```{r}
+clean_names <- function(df_names) {
+  tolower(gsub(".", "_", df_names, fixed = TRUE))
+}
+```
+
+
+```{r}
+ratings <- read.csv("data/BX-Book-Ratings.csv", sep = ";")
+names(ratings) <- clean_names(names(ratings))
+
+dim(ratings)
+names(ratings)
+head(ratings, 3)
+```
+
+```{r}
+books <- read.csv("data/BX-Books.csv", sep = ";")
+names(books) <- clean_names(names(books))
+
+dim(books)
+names(books)
+head(books, 3)
+```
+
+```{r}
+users <- read.csv("data/BX-Users.csv", sep = ";")
+names(users) <- clean_names(names(users))
+
+dim(users)
+names(users)
+head(users, 3)
+```
+
+* Following NPS rules; book must be rated 7 or above to be liked by user
+
+```{r}
+ratings <- ratings %>% 
+  filter(book_rating >= 7)
+```
+
+* Only keep books we have meta info on
+
+```{r}
+ratings <- ratings %>% 
+  filter(isbn %in% books$isbn)
+```
+
+* Only keep users who have rated at least 5 books
+
+```{r}
+keep_users <- ratings %>%
+  group_by(user_id) %>%
+  summarise(n = n()) %>%
+  filter(n > 5) %>%
+  pull(user_id)
+
+n_total_readers <- length(keep_users)
+
+ratings <- ratings %>%
+  filter(user_id %in% keep_users)
+```
+
+* Find book popularity stats
+
+```{r}
+book_popularity <- ratings %>%
+  group_by(isbn) %>%
+  summarise(
+    n_readers = n_distinct(user_id),
+    avg_rating = mean(book_rating)
+  ) %>%
+  mutate(perc_readers = n_readers / n_total_readers) %>%
+  left_join(books, by = "isbn") %>%
+  arrange(-n_readers) %>%
+  select(
+    isbn, book_title, book_author,
+    n_readers, perc_readers, avg_rating
+  )
+
+head(book_popularity)
+```
+
+* Only keep books rated by at least 2 people
+
+```{r}
+book_popularity <- book_popularity %>%
+  filter(n_readers >= 2)
+
+ratings <- ratings %>%
+  filter(isbn %in% book_popularity$isbn)
+```
+
+* Convert to transactions
+
+```{r}
+book_transactions <- as(
+  split(ratings$isbn, ratings$user_id),
+  "transactions"
+)
+```
+
+* Inputs for recommendation
+
+```{r}
+# INPUTS
+selected_isbns <- sample(book_popularity$isbn, 5)
+
+min_len <- 2
+min_confidence <- 0.1
+min_support <- 2
+max_time <- 0 # 0 disables time limit
+```
+
+```{r}
+# RUNNING REC
+# TODO: 
+too_popular <- character(0)
+
+book_rules <- apriori(
+  book_transactions,
+  parameter = list(
+    supp = min_support / length(book_transactions),
+    conf = min_confidence,
+    minlen = min_len,
+    maxtime = max_time
+  ),
+  appearance = list(
+    none = too_popular,
+    lhs = selected_isbns,
+    default = "rhs"
+  ),
+  control = list(
+    verbose = FALSE
+  )
+)
+
+if (length(book_rules) > 0) {
+  book_rules <- book_rules[!is.redundant(book_rules)]
+  book_rules <- book_rules[is.significant(book_rules, book_transactions)]
+  
+  recs_df <- DATAFRAME(
+    book_rules,
+    itemSep = " + ", setStart = "", setEnd = ""
+  )
+  
+  recs_df <- recs_df %>% 
+    filter(!(RHS %in% selected_isbns)) %>% 
+    group_by(RHS) %>% 
+    summarise(confidence = max(confidence)) %>% 
+    rename(isbn = RHS) %>% 
+    arrange(-confidence) %>% 
+    left_join(book_popularity, by = "isbn")
+    
+} else {
+  print("no recs found")
+}
+
+recs_df
+```
