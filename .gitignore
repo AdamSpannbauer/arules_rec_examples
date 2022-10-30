@@ -1,3 +1,7 @@
+# large data files
+books/data
+anime/data
+
 .DS_Store
 
 # History files
