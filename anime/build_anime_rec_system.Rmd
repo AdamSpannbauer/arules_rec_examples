@@ -7,6 +7,12 @@ output: html_document
 
 Source: https://www.kaggle.com/datasets/hernan4444/anime-recommendation-database-2020
 
+Download link: https://www.kaggle.com/datasets/hernan4444/anime-recommendation-database-2020/download?datasetVersionNumber=7
+
+* Download zip file
+* Unzip
+* Keep unzipped data files in a folder named `data` that's in the same folder as this Rmd file
+
 ```{r message=FALSE}
 
 ```
