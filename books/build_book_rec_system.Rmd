@@ -55,15 +55,18 @@ head(users, 3)
 * Following NPS rules; book must be rated 7 or above to be liked by user
 
 ```{r}
-ratings <- ratings %>% 
+ratings <- ratings %>%
   filter(book_rating >= 7)
 ```
 
 * Only keep books we have meta info on
 
 ```{r}
-ratings <- ratings %>% 
+ratings <- ratings %>%
   filter(isbn %in% books$isbn)
+
+books <- books %>%
+  filter(isbn %in% ratings$isbn)
 ```
 
 * Only keep users who have rated at least 5 books
@@ -79,6 +82,9 @@ n_total_readers <- length(keep_users)
 
 ratings <- ratings %>%
   filter(user_id %in% keep_users)
+
+books <- books %>%
+  filter(isbn %in% ratings$isbn)
 ```
 
 * Find book popularity stats
@@ -120,11 +126,27 @@ book_transactions <- as(
 )
 ```
 
+* Save processed data files
+
+```{r}
+write.csv(
+  book_popularity,
+  file = "data/book_popularity.csv",
+  row.names = FALSE
+)
+
+save(
+  book_transactions,
+  file = "data/book_transactions.Rdata"
+)
+```
+
 * Inputs for recommendation
 
 ```{r}
 # INPUTS
-selected_isbns <- sample(book_popularity$isbn, 5)
+selected_books <- head(book_popularity)
+selected_isbns <- sample(selected_books$isbn, 5)
 
 min_len <- 2
 min_confidence <- 0.1
@@ -134,7 +156,7 @@ max_time <- 0 # 0 disables time limit
 
 ```{r}
 # RUNNING REC
-# TODO: 
+# TODO:
 too_popular <- character(0)
 
 book_rules <- apriori(
@@ -158,20 +180,19 @@ book_rules <- apriori(
 if (length(book_rules) > 0) {
   book_rules <- book_rules[!is.redundant(book_rules)]
   book_rules <- book_rules[is.significant(book_rules, book_transactions)]
-  
+
   recs_df <- DATAFRAME(
     book_rules,
     itemSep = " + ", setStart = "", setEnd = ""
   )
-  
-  recs_df <- recs_df %>% 
-    filter(!(RHS %in% selected_isbns)) %>% 
-    group_by(RHS) %>% 
-    summarise(confidence = max(confidence)) %>% 
-    rename(isbn = RHS) %>% 
-    arrange(-confidence) %>% 
+
+  recs_df <- recs_df %>%
+    filter(!(RHS %in% selected_isbns)) %>%
+    group_by(RHS) %>%
+    summarise(confidence = max(confidence)) %>%
+    rename(isbn = RHS) %>%
+    arrange(-confidence) %>%
     left_join(book_popularity, by = "isbn")
-    
 } else {
   print("no recs found")
 }
