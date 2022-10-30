@@ -1,0 +1,13 @@
+---
+title: "Book recs"
+author: "Me"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Data source: https://www.kaggle.com/datasets/jirakst/bookcrossing?select=BX-Users.csv
+
+```{r message=FALSE}
+
+```
+
