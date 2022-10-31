@@ -86,22 +86,22 @@ while (!done_filtering) {
     group_by(user_id) %>%
     summarise(n = n()) %>%
     filter(n <= min_user_ratings) %>%
-    pull(user_id) %>% 
+    pull(user_id) %>%
     unique()
-  
-  ratings <- ratings %>% 
+
+  ratings <- ratings %>%
     filter(!(user_id %in% drop_users))
-  
+
   drop_isbns <- ratings %>%
     group_by(isbn) %>%
     summarise(n = n()) %>%
     filter(n <= min_book_ratings) %>%
-    pull(isbn) %>% 
+    pull(isbn) %>%
     unique()
 
-  ratings <- ratings %>% 
+  ratings <- ratings %>%
     filter(!(isbn %in% drop_isbns))
-  
+
   if (length(drop_isbns) == 0 && length(drop_users) == 0) {
     done_filtering <- TRUE
   }
@@ -221,8 +221,57 @@ if (length(book_rules) > 0) {
     arrange(-confidence) %>%
     left_join(book_popularity, by = "isbn")
 } else {
-  print("no recs found")
+  recs_df <- NULL
 }
 
 recs_df
+```
+
+* in function form
+
+```{r}
+make_book_recs <- function(
+  selected, transactions, exclude = character(0),
+  min_support = 2, min_confidence = 0.1, min_len = 2,
+  max_time = 0
+) {
+  book_rules <- apriori(
+    transactions,
+    parameter = list(
+      supp = min_support / length(transactions),
+      conf = min_confidence,
+      minlen = min_len,
+      maxtime = max_time
+    ),
+    appearance = list(
+      none = exclude,
+      lhs = selected,
+      default = "rhs"
+    ),
+    control = list(
+      verbose = FALSE
+    )
+  )
+
+  if (length(book_rules) > 0) {
+    book_rules <- book_rules[!is.redundant(book_rules)]
+    book_rules <- book_rules[is.significant(book_rules, transactions)]
+
+    recs_df <- DATAFRAME(
+      book_rules,
+      itemSep = " + ", setStart = "", setEnd = ""
+    )
+
+    recs_df <- recs_df %>%
+      filter(!(RHS %in% selected_isbns)) %>%
+      group_by(RHS) %>%
+      summarise(confidence = max(confidence)) %>%
+      rename(isbn = RHS) %>%
+      arrange(-confidence)
+  } else {
+    recs_df <- NULL
+  }
+
+  recs_df
+}
 ```
