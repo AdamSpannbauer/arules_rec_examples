@@ -24,6 +24,7 @@ clean_names <- function(df_names) {
 }
 ```
 
+* Read in all relevant data
 
 ```{r}
 ratings <- read.csv("data/BX-Book-Ratings.csv", sep = ";")
@@ -69,27 +70,63 @@ books <- books %>%
   filter(isbn %in% ratings$isbn)
 ```
 
-* Only keep users who have rated at least 5 books
+* Only keep users who have rated at least `n` books
+* Only keep books rated by at least `n` people
+* These 2 are intertwined:
+  * if BOOK_A is rated by only 2 users it stays, but 1 of its users only rated 1 book... so if I remove that user it lowers BOOK_A's ratings... if I remove BOOK_A it would lower some user's number of books rated.. ahhhhh
 
 ```{r}
-keep_users <- ratings %>%
-  group_by(user_id) %>%
-  summarise(n = n()) %>%
-  filter(n > 5) %>%
-  pull(user_id)
+min_book_ratings <- 2
+min_user_ratings <- 2
 
-n_total_readers <- length(keep_users)
+done_filtering <- FALSE
 
-ratings <- ratings %>%
-  filter(user_id %in% keep_users)
+while (!done_filtering) {
+  drop_users <- ratings %>%
+    group_by(user_id) %>%
+    summarise(n = n()) %>%
+    filter(n <= min_user_ratings) %>%
+    pull(user_id) %>% 
+    unique()
+  
+  ratings <- ratings %>% 
+    filter(!(user_id %in% drop_users))
+  
+  drop_isbns <- ratings %>%
+    group_by(isbn) %>%
+    summarise(n = n()) %>%
+    filter(n <= min_book_ratings) %>%
+    pull(isbn) %>% 
+    unique()
 
+  ratings <- ratings %>% 
+    filter(!(isbn %in% drop_isbns))
+  
+  if (length(drop_isbns) == 0 && length(drop_users) == 0) {
+    done_filtering <- TRUE
+  }
+}
+
+# Proving min rating reqs are met
+sort(table(ratings$user_id))[1]
+sort(table(ratings$isbn))[1]
+```
+
+* Filter additional data sets based on ratings filter
+
+```{r}
 books <- books %>%
   filter(isbn %in% ratings$isbn)
+
+users <- users %>%
+  filter(user_id %in% ratings$user_id)
 ```
 
 * Find book popularity stats
 
 ```{r}
+n_total_readers <- length(unique(ratings$user_id))
+
 book_popularity <- ratings %>%
   group_by(isbn) %>%
   summarise(
@@ -105,16 +142,6 @@ book_popularity <- ratings %>%
   )
 
 head(book_popularity)
-```
-
-* Only keep books rated by at least 2 people
-
-```{r}
-book_popularity <- book_popularity %>%
-  filter(n_readers >= 2)
-
-ratings <- ratings %>%
-  filter(isbn %in% book_popularity$isbn)
 ```
 
 * Convert to transactions
