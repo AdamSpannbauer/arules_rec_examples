@@ -16,11 +16,23 @@ Download link: https://www.kaggle.com/datasets/jirakst/bookcrossing/download?dat
 ```{r message=FALSE}
 library(dplyr)
 library(arules)
+library(XML)
 ```
 
 ```{r}
 clean_names <- function(df_names) {
   tolower(gsub(".", "_", df_names, fixed = TRUE))
+}
+
+decode_html_entity <- function(x) {
+  x <- iconv(x, to = "ASCII//TRANSLIT")
+  if (is.na(x) | nchar(x) == 0) return("")
+  
+  xmlValue(getNodeSet(htmlParse(x, asText = TRUE), "//p")[[1]])
+}
+
+decode_html_entities <- function(x) {
+  vapply(x, decode_html_entity, character(1), USE.NAMES = FALSE)
 }
 ```
 
@@ -38,6 +50,11 @@ head(ratings, 3)
 ```{r}
 books <- read.csv("data/BX-Books.csv", sep = ";")
 names(books) <- clean_names(names(books))
+
+# Convert HTML endcoded symbols (eg "&amp;" becomes "&")
+books$book_title <- decode_html_entities(books$book_title)
+books$book_author <- decode_html_entities(books$book_author)
+books$publisher <- decode_html_entities(books$publisher)
 
 dim(books)
 names(books)
@@ -66,6 +83,39 @@ ratings <- ratings %>%
 ratings <- ratings %>%
   filter(isbn %in% books$isbn)
 
+books <- books %>%
+  filter(isbn %in% ratings$isbn)
+```
+
+* De-duplicate books
+  * Books will be unique based on title author combo
+  * Some cases will still be duped; some note hard vs soft cover in title
+
+```{r}
+# Find first occurring isbn per title*author
+std_isbns <- books %>%
+  group_by(book_title, book_author) %>%
+  summarise(std_isbn = head(isbn, 1))
+
+# Make translation table holding original isbn
+# and what std_isbn that maps to
+isbn_translation <- books %>%
+  left_join(std_isbns, by = c("book_title", "book_author")) %>%
+  select(isbn, std_isbn)
+
+# Convert map isbns in ratings to be std_isbn values
+ratings <- ratings %>%
+  left_join(isbn_translation, on = "isbn") %>%
+  mutate(isbn = std_isbn) %>%
+  select(-std_isbn)
+
+# If a user rated same book across different isbns
+# take average of different ratings
+ratings <- ratings %>%
+  group_by(user_id, isbn) %>%
+  summarise(book_rating = mean(book_rating))
+
+# Filter books to just those that appear in ratings
 books <- books %>%
   filter(isbn %in% ratings$isbn)
 ```
@@ -153,6 +203,21 @@ book_transactions <- as(
 )
 ```
 
+* summary stats
+
+```{r}
+n_books <- length(unique(ratings$isbn))
+n_users <- length(unique(ratings$user_id))
+n_ratings <- nrow(ratings)
+
+cat(
+  n_books, "  books\n",
+  n_users, "  users\n",
+  n_ratings, " n_ratings\n",
+  sep = ""
+)
+```
+
 * Save processed data files
 
 ```{r}
@@ -227,51 +292,3 @@ if (length(book_rules) > 0) {
 recs_df
 ```
 
-* in function form
-
-```{r}
-make_book_recs <- function(
-  selected, transactions, exclude = character(0),
-  min_support = 2, min_confidence = 0.1, min_len = 2,
-  max_time = 0
-) {
-  book_rules <- apriori(
-    transactions,
-    parameter = list(
-      supp = min_support / length(transactions),
-      conf = min_confidence,
-      minlen = min_len,
-      maxtime = max_time
-    ),
-    appearance = list(
-      none = exclude,
-      lhs = selected,
-      default = "rhs"
-    ),
-    control = list(
-      verbose = FALSE
-    )
-  )
-
-  if (length(book_rules) > 0) {
-    book_rules <- book_rules[!is.redundant(book_rules)]
-    book_rules <- book_rules[is.significant(book_rules, transactions)]
-
-    recs_df <- DATAFRAME(
-      book_rules,
-      itemSep = " + ", setStart = "", setEnd = ""
-    )
-
-    recs_df <- recs_df %>%
-      filter(!(RHS %in% selected_isbns)) %>%
-      group_by(RHS) %>%
-      summarise(confidence = max(confidence)) %>%
-      rename(isbn = RHS) %>%
-      arrange(-confidence)
-  } else {
-    recs_df <- NULL
-  }
-
-  recs_df
-}
-```
