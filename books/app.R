@@ -1,9 +1,10 @@
 library(shiny)
 library(dplyr)
+library(arules)
 library(DT)
 
-load("data/book_transactions.Rdata")
-popularity <- read.csv("data/book_popularity.csv")
+load("app_data/book_transactions.Rdata")
+popularity <- read.csv("app_data/book_popularity.csv")
 
 # TODO: dedup books by title*author not just isbn
 popularity$book_name <- paste(
